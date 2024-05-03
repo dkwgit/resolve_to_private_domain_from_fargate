@@ -10,14 +10,14 @@ class Program
           string hostName = "host.fictitious-domain-name.com";
 
           var result = Dns.GetHostEntry(hostName);
-          Console.WriteLine($"GetHostEntry({hostName}) returns:");
+          Console.WriteLine($"GetHostEntry({hostName}) returned:");
 
           foreach (IPAddress address in result.AddressList)
           {
               Console.WriteLine($"  {address}");
           }
         } catch (Exception e) {
-          Console.WriteLine($"Got exception Exception: {e.Message}");
+          Console.WriteLine($"Got exception: {e.Message}");
         }
         Console.WriteLine($"Done");
     }

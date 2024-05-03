@@ -1,75 +1,84 @@
-# ECS Cluster Complete
+# Demonstrating DNS resolution for Fargate ECS task via a private hosted zone in Route 53
 
-Configuration in this directory creates:
+# Pre-requisites
+- I did everything in WSL, but it ought to work in straight Windows.
+- ECR Credential helper to help with pushing to a private ECR respository. This enables the use of
+  ./docker-config/config.json to transparently push to ECR when doing a docker push.
+  ```json
+  {
+	"credsStore": "ecr-login"
+  }
+  ```
+- A set of credentials for work in an AWS account (I used IAM Identity Center credentials). These credentials must be
+  able to do things like "ECR repository create" and "VPC Creete" and "ECS Cluster Create". I used a one-off AWS account
+  I created just for this and I authenticated with AdministratorAccess credentials.
+- Be authenticated already with those credentials
+- Deploy everything (the ECS cluster, VPC, etc.)
+  ```powershell
+  cd ./terraform
+  terraform apply
+  ```
+- Build and push the Docker image
+  ```
+  . ./scripts/New-DockerImageBuildAndPush.ps1
+  New-DockerImageBuildAndPush
+  ```
 
-- ECS cluster using Fargate (on-demand and spot) capacity providers
-- Example ECS service that utilizes
-  - AWS Firelens using FluentBit sidecar container definition
-  - Service connect configuration
-  - Load balancer target group attachment
-  - Security group for access to the example service
+# Behavior
 
-## Usage
+## Not resolving.
 
-To run this example you need to execute:
+The code contains an attempt to resolve a made up `host.fictitious-domain-name.com` DNS host name that does not exist
+```csharp
+static void Main(string[] args)
+{
+    try {
+      string hostName = "host.fictitious-domain-name.com";
 
-```bash
-$ terraform init
-$ terraform plan
-$ terraform apply
+      var result = Dns.GetHostEntry(hostName);
+      Console.WriteLine($"GetHostEntry({hostName}) returned:");
+
+      foreach (IPAddress address in result.AddressList)
+      {
+          Console.WriteLine($"  {address}");
+      }
+    } catch (Exception e) {
+      Console.WriteLine($"Got exception: {e.Message}");
+    }
+    Console.WriteLine($"Done");
+}
 ```
 
-Note that this example may create resources which will incur monetary charges on your AWS bill. Run `terraform destroy` when you no longer need these resources.
+At first, you will find an exception from the catch handler in Cloud Watch log group /aws/ecs/ecs-container-service/ecs-container, log stream ecs/ecs-container
+```
+Got exception: Name or service not known
+Done
+```
 
-<!-- BEGINNING OF PRE-COMMIT-TERRAFORM DOCS HOOK -->
-## Requirements
+## Making it resolve
 
-| Name | Version |
-|------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 4.66.1 |
+- Create a private hosted zone in the same account in AWS in Route 53. I did this in the console.
+- Add an A (alias) record for host.fictitious-domain-name.com and point it to a silly IP address. I used 192.168.1.1,
+  which would not work (there is no route to this or anything--it is a typical home retail router ip).
+- Watch Cloud Watch. It will take some time. The ECS task is alway exiting when done. The ECS service is retarting it. Next
+  time the task starts, you will no longer get an exception, but
+  ```
+  GetHostEntry(host.fictitious-domain-name.com) returned:
+  192.168.1.1
+  Done
+  ```
 
-## Providers
+# Conclusion
 
-| Name | Version |
-|------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 4.66.1 |
+If you create a private zone with en entry for the DNS you want to resolve, this WILL work.  
 
-## Modules
+# Future ideas
 
-| Name | Source | Version |
-|------|--------|---------|
-| <a name="module_alb"></a> [alb](#module\_alb) | terraform-aws-modules/alb/aws | ~> 9.0 |
-| <a name="module_ecs"></a> [ecs](#module\_ecs) | ../../ | n/a |
-| <a name="module_ecs_cluster_disabled"></a> [ecs\_cluster\_disabled](#module\_ecs\_cluster\_disabled) | ../../modules/cluster | n/a |
-| <a name="module_ecs_disabled"></a> [ecs\_disabled](#module\_ecs\_disabled) | ../../ | n/a |
-| <a name="module_service_disabled"></a> [service\_disabled](#module\_service\_disabled) | ../../modules/service | n/a |
-| <a name="module_vpc"></a> [vpc](#module\_vpc) | terraform-aws-modules/vpc/aws | ~> 5.0 |
+Using a Route 53 resolver rule should allow you to get to our company's internal DNS so you don't have to carry an entry in the
+private zone. (This would have been harder for me to simulate--I did this all in a personal AWS account). But the
+private zone will allow us to move forward for the time being. Please, let's get unstuck.
+  
 
-## Resources
 
-| Name | Type |
-|------|------|
-| [aws_service_discovery_http_namespace.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/service_discovery_http_namespace) | resource |
-| [aws_availability_zones.available](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones) | data source |
-| [aws_ssm_parameter.fluentbit](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/ssm_parameter) | data source |
 
-## Inputs
 
-No inputs.
-
-## Outputs
-
-| Name | Description |
-|------|-------------|
-| <a name="output_cluster_arn"></a> [cluster\_arn](#output\_cluster\_arn) | ARN that identifies the cluster |
-| <a name="output_cluster_autoscaling_capacity_providers"></a> [cluster\_autoscaling\_capacity\_providers](#output\_cluster\_autoscaling\_capacity\_providers) | Map of capacity providers created and their attributes |
-| <a name="output_cluster_capacity_providers"></a> [cluster\_capacity\_providers](#output\_cluster\_capacity\_providers) | Map of cluster capacity providers attributes |
-| <a name="output_cluster_id"></a> [cluster\_id](#output\_cluster\_id) | ID that identifies the cluster |
-| <a name="output_cluster_name"></a> [cluster\_name](#output\_cluster\_name) | Name that identifies the cluster |
-| <a name="output_services"></a> [services](#output\_services) | Map of services created and their attributes |
-<!-- END OF PRE-COMMIT-TERRAFORM DOCS HOOK -->
-
-## License
-
-Apache-2.0 Licensed. See [LICENSE](https://github.com/terraform-aws-modules/terraform-aws-ecs/blob/master/LICENSE).
