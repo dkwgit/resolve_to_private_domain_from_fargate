@@ -57,17 +57,6 @@ module "ecs" {
       # Container definition(s)
       container_definitions = {
 
-        fluent-bit = {
-          cpu       = 512
-          memory    = 1024
-          essential = true
-          image     = nonsensitive(data.aws_ssm_parameter.fluentbit.value)
-          firelens_configuration = {
-            type = "fluentbit"
-          }
-          memory_reservation = 50
-        }
-
         (local.container_name) = {
           cpu       = 512
           memory    = 1024
@@ -86,19 +75,14 @@ module "ecs" {
           # Example image used requires access to write to root filesystem
           readonly_root_filesystem = false
 
-          dependencies = [{
-            containerName = "fluent-bit"
-            condition     = "START"
-          }]
-
           enable_cloudwatch_logging = true
-          log_configuration = {
-            logDriver = "awsfirelens"
-            options = {
-              Name                    = "firehose"
-              region                  = local.region
-              delivery_stream         = "my-stream"
-              log-driver-buffer-limit = "2097152"
+          "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+                "awslogs-group": local.region,
+                "awslogs-region": local.region,
+                "awslogs-create-group": "container-logs",
+                "awslogs-stream-prefix": local.container_name
             }
           }
           memory_reservation = 100
@@ -128,7 +112,8 @@ module "ecs" {
       tasks_iam_role_name        = "${local.name}-tasks-role"
       tasks_iam_role_description = "Example tasks IAM role for ${local.name}"
       tasks_iam_role_policies = {
-        ReadOnlyAccess = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+        ReadOnlyAccess = "arn:aws:iam::aws:policy/ReadOnlyAccess",
+        FireHoseFullAccess = "arn:aws:iam::aws:policy/AmazonKinesisFirehoseFullAccess"
       }
       tasks_iam_role_statements = [
         {
@@ -172,10 +157,6 @@ module "ecs" {
 ################################################################################
 # Supporting Resources
 ################################################################################
-
-data "aws_ssm_parameter" "fluentbit" {
-  name = "/aws/service/aws-for-fluent-bit/stable"
-}
 
 resource "aws_service_discovery_http_namespace" "this" {
   name        = local.name
